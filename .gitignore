@@ -1,0 +1,33 @@
+# Node modules
+Frontend/node_modules/
+
+# Build output
+Frontend/build/
+
+# Logs
+*.log
+
+# Dependency directories
+backend/target/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+
+# Maven wrapper
+backend/.mvn/
+backend/mvnw
+backend/mvnw.cmd
+
+# Database files
+database/
