@@ -1,0 +1,46 @@
+# AWS CodePipeline definition (YAML for reference, actual setup is via AWS Console or CloudFormation/CDK)
+# This is a high-level example pipeline for a microservices app with ECR, EKS, SonarQube, Trivy, Prometheus, and CloudWatch
+
+version: 1.0
+phases:
+  install:
+    runtime-versions:
+      docker: 20
+      nodejs: 18
+      java: corretto17
+    commands:
+      # Install Trivy and SonarScanner if needed
+      - curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+      - npm install -g sonarqube-scanner
+  pre_build:
+    commands:
+      # SonarQube scan (example)
+      - sonar-scanner -Dsonar.projectKey=myapp -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_TOKEN
+      # Trivy scan
+      - trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+      # Authenticate Docker to ECR
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+  build:
+    commands:
+      # Build Docker images
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/backend:latest ./backend
+      - docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/frontend:latest ./Frontend
+      # Push images to ECR
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/backend:latest
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/frontend:latest
+  post_build:
+    commands:
+      # Deploy to EKS (kubectl must be configured)
+      - kubectl apply -f k8s/aws/
+      # Optionally, run integration tests
+      # - ./scripts/integration-tests.sh
+artifacts:
+  files:
+    - '**/*'
+
+# Monitoring and logging:
+# - Prometheus and Grafana should be deployed in EKS (see Helm charts)
+# - CloudWatch Container Insights can be enabled for EKS for logs/metrics
+# - Use aws-for-fluent-bit DaemonSet for advanced log shipping
+
+# Note: For a real pipeline, use AWS CodeBuild/CodePipeline UI or CloudFormation/CDK for full setup.

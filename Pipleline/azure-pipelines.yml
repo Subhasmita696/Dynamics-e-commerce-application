@@ -1,0 +1,68 @@
+# Azure DevOps Pipeline for full DevSecOps
+# Includes SonarQube, Trivy, Docker build/push to ACR, AKS deploy, Prometheus/Grafana, and Azure Monitor
+
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  ACR_NAME: '<your-acr-name>'
+  AZURE_RESOURCE_GROUP: '<your-resource-group>'
+  AKS_CLUSTER: '<your-aks-cluster>'
+  SONAR_HOST_URL: $(SONAR_HOST_URL)
+  SONAR_TOKEN: $(SONAR_TOKEN)
+
+stages:
+  - stage: BuildAndScan
+    jobs:
+      - job: Build
+        steps:
+          - task: SonarQubePrepare@5
+            inputs:
+              SonarQube: 'SonarQubeServiceConnection'
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: 'myapp'
+              cliProjectName: 'myapp'
+          - script: |
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+              trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+            displayName: 'Trivy Scan'
+          - task: SonarQubeAnalyze@5
+          - task: SonarQubePublish@5
+            inputs:
+              pollingTimeoutSec: '300'
+          - script: |
+              docker build -t $(ACR_NAME).azurecr.io/backend:latest ./backend
+              docker build -t $(ACR_NAME).azurecr.io/frontend:latest ./Frontend
+            displayName: 'Build Docker Images'
+          - script: |
+              echo $(DOCKER_PASSWORD) | docker login $(ACR_NAME).azurecr.io -u $(DOCKER_USERNAME) --password-stdin
+              docker push $(ACR_NAME).azurecr.io/backend:latest
+              docker push $(ACR_NAME).azurecr.io/frontend:latest
+            displayName: 'Push to ACR'
+
+  - stage: Deploy
+    dependsOn: BuildAndScan
+    jobs:
+      - deployment: DeployToAKS
+        environment: 'aks'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  inputs:
+                    azureSubscription: 'AzureServiceConnection'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az aks get-credentials --resource-group $(AZURE_RESOURCE_GROUP) --name $(AKS_CLUSTER)
+                      kubectl apply -f k8s/azure/
+
+# Monitoring:
+# - Prometheus and Grafana should be deployed in AKS (see Helm charts)
+# - Azure Monitor/Log Analytics can be enabled for AKS for logs/metrics
+# - Use Azure Monitor Container Insights for advanced log shipping
